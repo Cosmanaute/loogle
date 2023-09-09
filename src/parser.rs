@@ -1,18 +1,102 @@
 use scraper::{Html, Selector};
-use std::{fs, io::Read};
+use crate::lexer::*;
+use std::fs;
+use std::io::Read;
+use std::path::Path;
 
-pub fn parse(file: &str) -> std::io::Result<()> {
+pub fn crawl(root: &str, terms: &Vec<String>) -> std::io::Result<()> {
+    let mut evaled: Vec<(String, i32)> = Vec::new();
+    let path = Path::new(root);
+    if path.is_dir() {
+        for entry in fs::read_dir(path)? {
+            let dir = entry?;
+            let dir_path = dir.path();
+
+            if dir_path.is_dir() {
+                if let Some(dir_str) = dir_path.to_str() {crawl(dir_str, &terms)?;}
+                else {eprintln!("Error reading directory: {:?}", dir_path);}
+            }
+            else {
+                if dir_path.to_str().unwrap().ends_with(".html") {
+                    let tokens = parse(&dir_path.to_str().unwrap())?;
+                    let pts = evaluate(tokens, &terms)?;
+                    let result: (String, i32) = (dir_path.to_str().unwrap().to_string(), pts);
+                    evaled.push(result.clone()); 
+                }
+            }
+        }
+    } else {
+        eprintln!("Error reading directory: {}", root);
+    }
+    println!("{:?}", evaled);
+
+    Ok(())
+}
+
+fn filter_tokens(tokens: &Vec<Token>) -> std::io::Result<Vec<String>> {
+    let mut filtered: Vec<String> = Vec::new();
+    let mut buffer = String::new();
+
+    for token in tokens.iter() {
+        match token.token_t {
+            TokenType::Space => {
+                filtered.push(buffer.to_lowercase().clone());
+                println!("{}", buffer);
+                buffer.clear();
+            },
+            TokenType::Letter => {
+                buffer.push(token.content);
+            },
+            _ => {
+                continue;
+            }
+        };
+    }
+        
+    if !buffer.is_empty() {
+        filtered.push(buffer.clone());
+    }
+
+    Ok(filtered)
+}
+
+pub fn evaluate(tokens: Vec<Token>, terms: &Vec<String>) -> std::io::Result<i32> {
+    let arguments: Vec<String> = terms.clone();
+    let filtered_tokens: Vec<String>  = filter_tokens(&tokens)?; 
+    let mut pts = 0;
+    
+    // checking if terms appears
+    for i in filtered_tokens.into_iter() {
+        for j in arguments.iter() {
+            if i == j.to_string() {
+               pts += 1;
+            }
+        }  
+    }
+
+    Ok(pts)
+}
+
+pub fn parse(file: &str) -> std::io::Result<Vec<Token>> {
     let mut f = fs::File::open(&file)?;
     let mut contents = String::new();
     f.read_to_string(&mut contents)?;
 
     let selection = Html::parse_document(&contents);
     let buffer = Selector::parse("p").unwrap();
+    let buffer_2 = Selector::parse("span").unwrap();
     let mut paragraphs = String::new();
 
     for elem in selection.select(&buffer) {
-        let para = elem.text().collect::<String>();
-        paragraphs.push_str(&para);
+        let tmp = elem.text().collect::<String>();
+        paragraphs.push_str(&tmp);
+    }
+
+    paragraphs.push(' ');
+
+    for elem in selection.select(&buffer_2) {
+        let tmp = elem.text().collect::<String>();
+        paragraphs.push_str(&tmp);
     }
 
     let mut tokens: Vec<Token> = Vec::new();
@@ -21,64 +105,8 @@ pub fn parse(file: &str) -> std::io::Result<()> {
 
     while token.token_t != TokenType::EOF {
         tokens.push(token);
-        println!("{:?}", token);
         token = lexer.next_token().unwrap();
     } 
 
-
-    Ok(())
+    Ok(tokens)
 }
-
-struct Lexer {
-    input: String,
-    position: usize,
-    ch: char,
-}
-
-#[derive(PartialEq, Debug, Clone, Copy)]
-enum TokenType {
-    Letter,
-    Number,
-    Symbol,
-    Space,
-    Other,
-    EOF,
-}
-
-#[derive(Debug, Clone, Copy)]
-struct Token {
-    token_t: TokenType,
-    content: char,
-}
-
-impl Lexer {
-    fn new(input: String) -> Self {
-        Self {input, position: 0, ch: '\0'}
-    }
-
-    fn next_token(&mut self) -> Option<Token> {
-        if self.position >= self.input.len() {
-            return Some(Token {token_t: TokenType::EOF, content: '\0'});
-        }
-
-        if let Some(ch) = self.input.chars().nth(self.position) {
-            self.ch = ch;
-        }
-
-        self.position += 1;
-        
-        let token = match self.ch {
-            ' ' => Token {token_t: TokenType::Space, content: self.ch},
-            _c if self.ch as u8 >= 65 && self.ch as u8 <= 90 => Token {token_t: TokenType::Letter, content: self.ch},
-            _c if self.ch as u8 >= 97 && self.ch as u8 <= 122 => Token {token_t: TokenType::Letter, content: self.ch}, 
-            _c if self.ch as u8 >= 48 && self.ch as u8 <= 57 => Token {token_t: TokenType::Number, content: self.ch},
-            _c if self.ch as u8 >= 33 && self.ch as u8 <= 64 => Token {token_t: TokenType::Symbol, content: self.ch},
-            _c if self.ch as u8 >= 91 && self.ch as u8 <= 96 => Token {token_t: TokenType::Symbol, content: self.ch},
-            _c if self.ch as u8 >= 123 && self.ch as u8 <= 126 => Token {token_t: TokenType::Symbol, content: self.ch},
-            _ => Token {token_t: TokenType::Other, content: self.ch}
-        };
-        
-        return Some(token);
-    }
-}
-
