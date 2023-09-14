@@ -10,8 +10,12 @@ fn main() -> std::io::Result<()> {
         exit(1); 
     }
 
-    const PATH: &str = "."; 
-    parser::crawl(PATH, &argv)?;
+    const PATH: &str = "../documents"; 
+    let mut result = parser::crawl(PATH, &argv)?;
+    result.sort_by(|a, b| a.1.cmp(&b.1));
+    for i in result.iter() {
+        println!("{:?}", i);
+    }
 
     Ok(())
 }
