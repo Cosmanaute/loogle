@@ -1,3 +1,3 @@
 # loogle
 
-Search through html files.
+Search through html files. (single threaded)
